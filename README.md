@@ -1,307 +1,188 @@
-# 🤖 CodeAgent Reviewer
+# CodeAgent Reviewer
 
-> **AI-powered code review system with Multi-Agent architecture**
-> Built with LangGraph, DeepSeek API, and Streamlit
-
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.0.30-green.svg)](https://langchain-ai.github.io/langgraph/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-## 🎯 What is this?
-
-CodeAgent Reviewer is an **AI-powered code review system** that automatically reviews GitHub Pull Requests using a **Multi-Agent architecture**.
-
-When you submit a PR URL, 5 specialized AI agents collaborate to:
-1. **Fetch** PR data from GitHub API
-2. **Analyze** code quality (static analysis + LLM reasoning)
-3. **Synthesize** a professional review report (Markdown)
-4. **Reflect** on report quality (LLM-as-judge, retry if score < 7)
-5. **Notify** by posting the report back to the PR as a comment
-
-### 🔥 Why is this technically impressive?
-
-| Technical Highlight | What it demonstrates | Interview talking point |
-|-----------------|---------------------|----------------------|
-| **Multi-Agent System** (5 agents) | You understand complex agent orchestration, not just "call LLM API" | "Why 5 agents? Separation of concerns, fault tolerance, scalable" |
-| **LangGraph StateGraph** | You know LangGraph internals: State, Node, Edge, Conditional Edge, Loop | "How does the reflection loop work? Conditional edge + max_iterations" |
-| **LLM-as-Judge** (Reflector) | You understand agent self-improvement, not just generation | "How do you ensure quality? Reflection loop with LLM scoring" |
-| **Static Analysis** (AST) | You don't just use LLM, you combine traditional techniques | "Why not just use LLM? Cost, speed, accuracy for simple checks" |
-| **GitHub API Integration** | Real-world integration, not a toy demo | "How do you handle rate limits? Token auth, pagination" |
+一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
 
 ---
 
-## 🏗️ Architecture
+## 它怎么工作的
 
-```mermaid
-graph TB
-    User[User submits PR URL] --> Frontend[Streamlit Frontend]
-    Frontend --> API[FastAPI Backend]
-    API --> Graph[LangGraph Workflow]
-    
-    Graph --> Fetcher[Fetcher Agent<br/>GitHub API]
-    Fetcher --> Analyzer[Analyzer Agent<br/>Static + LLM]
-    Analyzer --> Synthesizer[Synthesizer Agent<br/>Report Generation]
-    Synthesizer --> Reflector[Reflector Agent<br/>LLM-as-Judge]
-    
-    Reflector -->|score < 7| Analyzer
-    Reflector -->|score >= 7| Notifier[Notifier Agent<br/>Post to PR]
-    
-    Notifier --> GitHub[GitHub PR Comment]
-    Notifier --> Frontend
-    
-    style Fetcher fill:#e1f5fe
-    style Analyzer fill:#f3e5f5
-    style Synthesizer fill:#e8f5e9
-    style Reflector fill:#fff3e0
-    style Notifier fill:#fce4ec
+```
+你提交一个 PR 链接
+       |
+       v
+  [1] Fetcher Agent -- 从 GitHub 拉取 PR 的代码改动
+       |
+       v
+  [2] Analyzer Agent -- 逐文件分析代码质量（静态分析 + LLM 推理）
+       |
+       v
+  [3] Synthesizer Agent -- 把所有问题汇总成一份 Markdown 审查报告
+       |
+       v
+  [4] Reflector Agent -- 用另一个 LLM 对报告质量打分（1-10 分）
+       |                    如果低于 7 分，退回给 Analyzer 重新分析
+       v                    （最多重试 3 次）
+  [5] Notifier Agent -- 把报告贴到 GitHub PR 的评论区
 ```
 
-### Agent Responsibilities
-
-| Agent | Input | Output | Key Logic |
-|-------|-------|--------|-----------|
-| **Fetcher** | `pr_url`, `github_token` | `pr_info`, `code_files` | GitHub API: `GET /repos/{owner}/{repo}/pulls/{number}/files` |
-| **Analyzer** | `code_files` | `issues[]` | Static analysis (AST) + LLM analysis (DeepSeek) |
-| **Synthesizer** | `issues[]`, `pr_info` | `report` (Markdown) | LLM: Generate professional review report |
-| **Reflector** | `report` | `score`, `needs_replan` | LLM-as-Judge: Score 1-10, retry if < 7 |
-| **Notifier** | `report` | `notification_status` | GitHub API: `POST /repos/{owner}/{repo}/pulls/{number}/reviews` |
+为什么要用 5 个 Agent 而不是一个 LLM 调用？因为：
+- 每个 Agent 只做一件事，出了问题好定位
+- Fetcher 拉完数据后，Analyzer 崩了不用重新拉
+- Reflector 可以反复打回重做，直到报告质量达标
+- 以后想加功能（比如安全审查），加一个 Agent 就行
 
 ---
 
-## 🚀 Quick Start
+## 怎么用
 
-### 1. Prerequisites
+### 准备工作
 
-- Python 3.10+
-- DeepSeek API Key ([get one here](https://platform.deepseek.com))
-- GitHub Personal Access Token ([create here](https://github.com/settings/tokens) - need `repo` scope)
+你需要：
+- Python 3.10 或更高版本
+- DeepSeek API Key（去 platform.deepseek.com 申请）
+- GitHub Personal Access Token（去 github.com/settings/tokens 创建，勾选 repo 权限）
 
-### 2. Clone & Install
+### 安装
 
 ```bash
-git clone https://github.com/yourusername/code-review-agent.git
+git clone https://github.com/aidless/code-review-agent.git
 cd code-review-agent
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment
+### 配置
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in:
-# DEEPSEEK_API_KEY=sk-xxxx
-# GITHUB_TOKEN=ghp_xxxx
 ```
 
-### 4. Run the System
+然后编辑 .env 文件，填入你的 API Key：
 
-**Terminal 1: Start the backend (FastAPI)**
+```
+DEEPSEEK_API_KEY=sk-你的key
+GITHUB_TOKEN=ghp_你的token
+```
+
+### 启动
+
+需要开两个终端窗口：
+
+**终端 1 -- 启动后端（FastAPI）**
 ```bash
 cd api
 python main.py
-# API running at http://localhost:8000
+# 会在 http://localhost:8000 启动
 ```
 
-**Terminal 2: Start the frontend (Streamlit)**
+**终端 2 -- 启动前端（Streamlit）**
 ```bash
 cd frontend
 streamlit run app.py
-# Frontend running at http://localhost:8501
+# 会在 http://localhost:8501 启动
 ```
 
-### 5. Use it!
+### 使用
 
-1. Open http://localhost:8501
-2. Enter a GitHub PR URL (e.g., `https://github.com/owner/repo/pull/123`)
-3. Click "🚀 Start Review"
-4. Wait 1-3 minutes
-5. View the generated review report!
-
----
-
-## 🧠 Technical Deep Dive (For Interview)
-
-### Q: Why Multi-Agent instead of a single LLM call?
-
-**A:** Separation of concerns + fault tolerance + scalability.
-
-- **Single LLM call**: One prompt does everything → hard to debug, no retry logic, monolithic
-- **Multi-Agent**: Each agent has a focused responsibility → easier to debug, can retry individual steps, parallelizable
-
-Example: If `Analyzer` fails, we don't need to re-run `Fetcher`. With single LLM, we'd re-run everything.
-
-### Q: How does the Reflection loop work?
-
-**A:** The `Reflector` agent uses LLM-as-Judge to score the report quality (1-10) on:
-- **Coverage**: Does it cover all issues?
-- **Depth**: Are analyses deep (not superficial)?
-- **Actionability**: Are suggestions specific?
-- **Clarity**: Is the report well-organized?
-
-If `score < 7`, set `needs_replan = True`. LangGraph's conditional edge routes back to `Analyzer`.
-
-**Stop condition**: `reflection_count < max_reflection_iterations (3)`
-
-### Q: Why use LangGraph instead of simple Python orchestration?
-
-**A:** LangGraph provides:
-1. **State management**: TypedDict state schema, auto-validation
-2. **Conditional edges**: `reflector` → `analyzer` (retry) OR `notifier` (continue)
-3. **Loop support**: Native support for cycles (retry loops)
-4. **Observability**: LangSmith tracing, see each agent's input/output
-5. **Checkpointing**: Can pause/resume (Human-in-the-Loop)
-
-Simple Python would require manual state management + loop logic + error handling.
-
-### Q: How do you handle LLM failures / rate limits?
-
-**A:** 
-- **Retry with exponential backoff**: `tenacity` library
-- **Fallback**: If LLM fails, use rule-based analysis (static analysis only)
-- **Rate limiting**: GitHub API has rate limits (5000 req/hour for authenticated). We cache PR data.
-
-### Q: What's the most challenging part you built?
-
-**A:** The **Reflector agent's scoring mechanism**. 
-- Challenge: LLM scoring is subjective. How do you ensure consistent scores?
-- Solution: Few-shot prompting with examples of good/bad reports. Also, we use the same LLM (DeepSeek) for analysis and reflection to avoid model bias.
+1. 打开浏览器访问 http://localhost:8501
+2. 在输入框里粘贴 GitHub PR 的链接（比如 https://github.com/owner/repo/pull/123）
+3. 点"开始审查"
+4. 等 1-3 分钟
+5. 看生成的审查报告
 
 ---
 
-## 📂 Project Structure
+## 文件说明
+
+### agents/ -- 5 个 Agent 的实现
+
+| 文件 | 这个 Agent 做什么 |
+|------|------------------|
+| `base_agent.py` | 所有 Agent 的基类。定义了公共接口：输入是什么、输出是什么、出错了怎么处理。其他 5 个 Agent 都继承它。 |
+| `fetcher_agent.py` | 第 1 个 Agent：拉数据。接收 PR 链接，调用 GitHub API 获取 PR 的标题、描述、所有文件的 diff（代码改动）。输出：PR 基本信息 + 所有代码文件内容。 |
+| `analyzer_agent.py` | 第 2 个 Agent：分析代码。对每个文件做两件事：(1) 静态分析（AST 语法树检查，找语法错误、未使用变量、过长函数等）；(2) LLM 分析（用 DeepSeek 理解代码逻辑，找设计问题、潜在 bug）。输出：问题列表，每个问题有严重程度和位置。 |
+| `synthesizer_agent.py` | 第 3 个 Agent：写报告。把 Analyzer 输出的问题列表，加上 PR 的基本信息，交给 LLM 生成一份结构化的 Markdown 审查报告。报告分"必须修复"、"建议修复"、"小问题"、"做得好的地方"四个部分。 |
+| `reflector_agent.py` | 第 4 个 Agent：审查报告质量。用另一个 LLM 调用给报告打分（1-10），从覆盖面、深度、可操作性、清晰度四个维度评估。如果分数低于 7，设置 needs_replan=True，LangGraph 会把流程退回到 Analyzer 重新分析。最多重试 3 次。 |
+| `notifier_agent.py` | 第 5 个 Agent：发通知。把最终的审查报告通过 GitHub API 贴到 PR 的评论区。同时把报告返回给前端显示。 |
+
+### graph/ -- 流程控制
+
+| 文件 | 做什么 |
+|------|--------|
+| `state.py` | 定义整个流程中传递的数据结构（TypedDict）。包括 PR 信息、代码文件列表、问题列表、审查报告、分数等。每个 Agent 的输入输出都是这个结构的一部分。 |
+| `workflow.py` | 用 LangGraph 定义整个工作流。5 个 Agent 的执行顺序、分支条件（Reflector 打分后是退回 Analyzer 还是继续到 Notifier）、循环逻辑（最多重试 3 次）都在这里配置。 |
+
+### tools/ -- 外部工具
+
+| 文件 | 做什么 |
+|------|--------|
+| `github_tool.py` | GitHub API 的封装。处理认证（用 Personal Access Token）、分页（PR 可能有几百个文件）、错误重试、速率限制。 |
+| `code_analyzer.py` | 静态代码分析。用 Python 的 AST 模块解析代码语法树，检查：未使用的 import、过长的函数（超过 50 行）、硬编码的字符串、缺少类型注解等。不需要 LLM，速度快，免费。 |
+
+### api/ -- 后端
+
+| 文件 | 做什么 |
+|------|--------|
+| `main.py` | FastAPI 后端。一个 POST 端点：接收 PR 链接，调用 LangGraph 工作流，返回审查报告。 |
+
+### frontend/ -- 前端
+
+| 文件 | 做什么 |
+|------|--------|
+| `app.py` | Streamlit 界面。一个输入框（填 PR 链接）+ 一个按钮（开始审查）+ 一个展示区（显示审查报告）。 |
+
+### 其他文件
+
+| 文件 | 做什么 |
+|------|--------|
+| `requirements.txt` | Python 依赖列表。主要的：langchain、langgraph、fastapi、streamlit、requests、python-dotenv。 |
+| `.env.example` | 环境变量模板。告诉你需要填哪些 API Key。 |
+| `.env` | 你自己的环境变量（不上传到 GitHub，因为里面有密钥）。 |
+
+---
+
+## 技术细节（面试用）
+
+### 为什么用 LangGraph 而不是自己写循环？
+
+LangGraph 提供了：
+- **状态管理**：数据结构有类型定义，自动校验
+- **条件分支**：Reflector 打分后自动判断是退回还是继续
+- **循环支持**：原生支持"Analyzer -> Reflector -> Analyzer"这种重试循环
+- **可观测性**：可以用 LangSmith 追踪每个 Agent 的输入输出
+- **断点续传**：可以暂停/恢复流程（Human-in-the-Loop）
+
+自己写 Python 循环也能实现，但要手动管理状态、错误处理、重试逻辑，代码量会大很多。
+
+### LLM 打分准不准？
+
+这是个好问题。LLM 打分确实有主观性。我的缓解措施：
+- 用 few-shot prompting，给 LLM 看几个"好报告"和"差报告"的例子，让它校准打分标准
+- 分析和反思用同一个 LLM（DeepSeek），避免模型之间的偏差
+- 打分维度固定（覆盖面、深度、可操作性、清晰度），每个维度有明确标准
+
+### 遇到 LLM 调用失败怎么办？
+
+- 重试：用 tenacity 库做指数退避重试
+- 降级：如果 LLM 挂了，退回到纯静态分析（AST 检查），至少能抓到基础问题
+- 速率限制：GitHub API 有速率限制（认证用户 5000 次/小时），用缓存避免重复请求
+
+---
+
+## 依赖
 
 ```
-code-review-agent/
-├── agents/                 # Multi-Agent implementations
-│   ├── base_agent.py      # Abstract base class
-│   ├── fetcher_agent.py   # Fetcher Agent (GitHub API)
-│   ├── analyzer_agent.py  # Analyzer Agent (Static + LLM)
-│   ├── synthesizer_agent.py # Synthesizer Agent (Report generation)
-│   ├── reflector_agent.py # Reflector Agent (LLM-as-Judge)
-│   └── notifier_agent.py # Notifier Agent (Post to PR)
-├── graph/                 # LangGraph orchestration
-│   ├── state.py          # AgentState TypedDict
-│   └── workflow.py       # LangGraph workflow definition
-├── tools/                 # External tool integrations
-│   ├── github_tool.py    # GitHub API wrapper
-│   └── code_analyzer.py # Static code analysis (AST)
-├── memory/                # (Optional) Chroma vector store
-├── api/                   # FastAPI backend
-│   └── main.py          # API endpoints
-├── frontend/              # Streamlit frontend
-│   └── app.py          # Streamlit UI
-├── data/                  # Data storage
-├── tests/                 # Test suite
-├── requirements.txt       # Python dependencies
-├── .env.example          # Environment variables template
-└── README.md            # This file
-```
-
----
-
-## 🔬 Key Design Decisions (With Rationale)
-
-### 1. LangGraph over raw Python orchestration
-- **Rationale**: LangGraph provides state management, conditional edges, loop support out-of-the-box
-- **Alternative considered**: Simple Python `while` loop → rejected (no observability, harder to debug)
-
-### 2. LLM-as-Judge for reflection
-- **Rationale**: Human evaluation is expensive. LLM can approximate quality scoring
-- **Risk**: LLM scoring can be inconsistent
-- **Mitigation**: Few-shot examples, same LLM for analysis+reflection
-
-### 3. Static analysis + LLM (not LLM-only)
-- **Rationale**: Static analysis is fast/cheap for simple checks (line length, TODOs). LLM is expensive but powerful for deep analysis
-- **Cost saving**: ~70% of issues are caught by static analysis
-
-### 4. GitHub API (not web scraping)
-- **Rationale**: Official API is stable, rate-limited but predictable
-- **Alternative**: Web scraping → rejected (brittle, may violate ToS)
-
----
-
-## 🎓 Interview Preparation
-
-### Common questions & answers:
-
-1. **"Walk me through your project"**
-   - Start: "I built a multi-agent code review system using LangGraph..."
-   - Middle: Explain the 5 agents, focus on Reflector's loop mechanism
-   - End: "The key technical challenge was designing the reflection loop..."
-
-2. **"Why did you choose LangGraph?"**
-   - Answer: State management, conditional edges, native loop support, observability
-
-3. **"How would you scale this to 1000+ PRs/day?"**
-   - Answer: Async processing (Celery + Redis), caching (Redis), rate limit handling, horizontal scaling
-
-4. **"What would you improve?"**
-   - Answer: Add Chroma vector store (retrieve similar PRs for context), add more agents (SecurityAgent, PerformanceAgent), support more languages
-
----
-
-## 📊 Results (Example Review)
-
-**Input**: PR #1234 from `facebook/react` (1000+ lines changed)
-
-**Output**:
-```
-# Code Review Report
-
-**Score: 6.5/10**
-
-## Critical Issues (Must Fix)
-- [Line 142] Memory leak in useEffect cleanup
-- [Line 289] Race condition in async handler
-
-## Major Issues (Should Fix)
-- [Line 56] Missing error boundary
-- [Line 401] Prop drilling (consider context)
-
-## Minor Issues
-- [Line 89] Unused variable `temp`
-- [Line 215] Line too long (125 chars)
-
-## Positive Aspects
-- Good use of React hooks
-- Clean component structure
-- Proper TypeScript types
+langchain
+langgraph
+fastapi
+uvicorn
+streamlit
+requests
+python-dotenv
+tenacity
 ```
 
 ---
 
-## 🛠️ Development
+## 许可
 
-### Running tests
-```bash
-pytest tests/
-```
-
-### Code style
-```bash
-black .
-flake8 .
-```
-
----
-
-## 📜 License
-
-MIT License - feel free to use this project for learning/interview prep!
-
----
-
-## 👤 Author
-
-**Liu Zewen (刘泽文)**
-- GitHub: [@aidless](https://github.com/aidless)
-- Project: [code-review-agent](https://github.com/aidless/code-review-agent)
-- Built for: 2026 AI Engineer job search (demonstrate Multi-Agent + LangGraph skills)
-
----
-
-## ⭐ If you like this project...
-
-Please star it on GitHub! It helps others discover this work.
-
-**Built with ❤️ and LangGraph**
+MIT。随便用。
