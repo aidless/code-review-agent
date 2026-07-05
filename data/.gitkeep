@@ -1,0 +1,4 @@
+# Data directory - stores review results and Chroma vector store
+
+# Review results are stored here (JSON files)
+# Chroma persistent directory will be created here

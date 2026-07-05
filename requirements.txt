@@ -1,0 +1,14 @@
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langgraph>=0.0.30
+openai>=1.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+streamlit>=1.30.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pytest>=7.4.0
+httpx>=0.24.0
+pygithub>=2.1.1
