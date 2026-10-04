@@ -4,3 +4,23 @@ __pycache__/
 *.log
 node_modules/
 .DS_Store
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Environments
+.venv/
+venv/
+env/
+# Local secrets
+.env.local
+.env.*.local
+# Coverage and build output
+.coverage
+htmlcov/
+coverage.xml
+build/
+*.egg-info/
+# OS
+Thumbs.db
