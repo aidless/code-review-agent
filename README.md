@@ -1,5 +1,7 @@
 # CodeAgent Reviewer
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
 
 ---
