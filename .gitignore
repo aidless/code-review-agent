@@ -4,23 +4,20 @@ __pycache__/
 *.log
 node_modules/
 .DS_Store
-*.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-# Environments
+
+
+# --- added by WorkBuddy takeover 2026-10-21 ---
+.env.*
+!.env.example
+!.env.template
 .venv/
 venv/
-env/
-# Local secrets
-.env.local
-.env.*.local
-# Coverage and build output
-.coverage
-htmlcov/
-coverage.xml
+dist/
 build/
 *.egg-info/
-# OS
-Thumbs.db
+data/
+models/
+.regression_tmp/
+*.bak
+
+*.bak*
