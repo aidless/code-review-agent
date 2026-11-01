@@ -4,7 +4,18 @@
 
 一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
 
----
+## 项目结构
+
+```
+code-review-agent/
++-- agents/              # 5 个 Agent（fetcher/analyzer/synthesizer/reflector/notifier）
++-- graph/               # LangGraph 状态机（state.py + workflow.py）
++-- tools/               # github_tool.py（GitHub API）+ code_analyzer.py（AST 静态分析）
++-- api/main.py          # FastAPI 后端（POST /review）
++-- frontend/app.py      # Streamlit 前端
++-- tests/test_analyzer.py  # 15 个离线单测（纯逻辑）
++-- requirements.txt
+```
 
 ## 它怎么工作的
 
@@ -167,6 +178,48 @@ LangGraph 提供了：
 - 重试：用 tenacity 库做指数退避重试
 - 降级：如果 LLM 挂了，退回到纯静态分析（AST 检查），至少能抓到基础问题
 - 速率限制：GitHub API 有速率限制（认证用户 5000 次/小时），用缓存避免重复请求
+
+---
+
+## 测试
+
+```bash
+cd code-review-agent
+python -m pytest tests/ -q    # 15 passed
+```
+
+15 个离线单测覆盖**纯逻辑**部分：`tools/code_analyzer.py` 的 AST 静态分析
+（行长度、TODO、裸 except、长函数、无效 Python 优雅降级、JS console.log、
+通用回退、dataclass 字段）和 `tools/github_tool.parse_pr_url`（基本/后缀/锚点/
+4 个反例）。Agent 的 LLM 路径、FastAPI 与 Streamlit 服务**有意不覆盖**
+（需要真实 Key，不伪造），详见 `tests/README.md`。
+
+## 证明什么 / 不证明什么
+
+**证明：** PR URL 解析器在无网络下可正确提取 owner/repo/PR 号并拒绝非 PR 链接；
+AST 静态分析器能识别行长度、TODO、裸 except、长函数等常见问题，并在输入是
+diff patch（非完整 Python）时优雅降级不崩溃。
+
+**不证明：** LLM 审查质量（Analyzer/Reflector/Synthesizer 需要 `DEEPSEEK_API_KEY`
+与 `GITHUB_TOKEN`，离线单测未触及，也不伪造结果）；端到端审查流程
+（LangGraph 状态机依赖上述 Agent，未在离线测试中实例化）；报告是否真的被
+贴回 GitHub PR（notifier 需要真实 Token，未测试）。
+
+## 复现
+
+```bash
+cd code-review-agent
+python -m pytest tests/ -q     # 15 passed（离线，无网络无 Key）
+
+# 单点复算：URL 解析
+python -c "
+import sys; sys.path.insert(0,'.')
+from tools.github_tool import parse_pr_url
+print(parse_pr_url('https://github.com/owner/repo/pull/123'))  # ('owner','repo',123)
+"
+```
+
+15 这个数字来自 `pytest tests/ -q` 的实际收集与通过数，可在此树复算。
 
 ---
 

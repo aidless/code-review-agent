@@ -1,21 +1,27 @@
 # tests/
 
-这个目录**有意留空**——本仓库目前没有自动化测试套件。
+离线测试套件，针对**纯逻辑**部分（不需要 LLM、不需要网络）：
 
-## 现在的验证方式
+| 文件 | 覆盖 | 数量 |
+|---|---|---|
+| `test_analyzer.py` | `tools/code_analyzer.py`（AST 静态分析）+ `tools/github_tool.parse_pr_url`（URL 解析） | 15 |
 
-| 入口 | 说明 |
-|---|---|
-| `api/main.py` | FastAPI 应用主入口，`python api/main.py` 起服务后手动验证各端点 |
-| `agents/` | 各 agent（analyzer / fetcher / reflector / synthesizer / notifier）可单独导入运行 |
-| `tools/code_analyzer.py` | 代码分析工具，可独立执行 |
+## 运行
+
+```bash
+cd code-review-agent
+python -m pytest tests/ -q     # 15 passed
+```
+
+## 有意不覆盖的部分
+
+- `agents/`（fetcher / analyzer / synthesizer / reflector / notifier）走真实
+  LLM 路径，需要 `DEEPSEEK_API_KEY` 与 `GITHUB_TOKEN`，离线测试不伪造。
+- `api/main.py`（FastAPI 服务）与 `frontend/app.py`（Streamlit）需要服务进程，
+  手动验证，不纳入单测。
+- `graph/workflow.py`（LangGraph 编排）依赖上述 LLM Agent，未在离线单测中实例化。
 
 ## 与 agent-platform 的区别
 
-`agent-platform` 有 `make smoke-offline` / `make gates` 门禁；本仓库体量小得多，
-还没有引入等价机制。如果后续要补，建议照搬那边思路：**每个模块一个 `--smoke` 入口**，
-而不是直接堆 pytest 用例。
-
-## 需要测试时
-
-测试文件放在这里，命名 `test_*.py`，用 `pytest tests` 运行。
+`agent-platform` 有 `make smoke-offline` / `make gates` 门禁；本仓库体量较小，
+先覆盖纯逻辑。若后续要扩，建议每个模块一个 `--smoke` 入口，而不是堆 pytest。
