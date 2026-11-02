@@ -179,6 +179,11 @@ LangGraph 提供了：
 - 降级：如果 LLM 挂了，退回到纯静态分析（AST 检查），至少能抓到基础问题
 - 速率限制：GitHub API 有速率限制（认证用户 5000 次/小时），用缓存避免重复请求
 
+**Fail-closed（真实代码）**：报告质量门是**fail-closed**——Reflector 打分 `< 7.0` 时
+`needs_replan=True`，**拒绝放行**低质量报告，退回 Analyzer 重做（最多 3 次）；LLM 调用失败时
+`_evaluate_report` 返回保守分（>500 字符→7.0，否则 4.0），**不伪造**高质量分。整体上「LLM 挂了
+退回到纯静态 AST 分析」——宁可输出保守结果，不把不可靠的 LLM 报告当成品。详见 `bench/README.md`。
+
 ---
 
 ## 测试
