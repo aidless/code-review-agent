@@ -4,6 +4,10 @@
 
 一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
 
+**验证过什么**：没有自动化测试（`tests/` 有意留空），只做过手工端到端跑通——给一个真实 PR 链接能出报告并回帖。请按"可运行原型"看待，不要按"可复现评测"看待。
+
+**怎么跑**：`pip install -r requirements.txt`，配置 `GITHUB_TOKEN` 与模型 API key，然后 `streamlit run app.py`。
+
 ---
 
 ## 它怎么工作的
