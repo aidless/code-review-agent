@@ -1,5 +1,7 @@
 # CodeAgent Reviewer
 
+[![CI](https://github.com/aidless/code-review-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/aidless/code-review-agent/actions/workflows/ci.yml)
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
@@ -16,6 +18,12 @@ code-review-agent/
 +-- tests/test_analyzer.py  # 15 个离线单测（纯逻辑）
 +-- requirements.txt
 ```
+
+**验证过什么**：没有自动化测试（`tests/` 有意留空），只做过手工端到端跑通——给一个真实 PR 链接能出报告并回帖。请按"可运行原型"看待，不要按"可复现评测"看待。
+
+**怎么跑**：`pip install -r requirements.txt`，配置 `GITHUB_TOKEN` 与模型 API key，然后 `streamlit run app.py`。
+
+---
 
 ## 它怎么工作的
 
@@ -103,6 +111,28 @@ streamlit run app.py
 5. 看生成的审查报告
 
 ---
+
+## 示例审查输出（Analyzer Agent 静态分析部分，真实运行）
+
+静态分析层不需要 LLM 和 API key，可以直接复现——下面是对仓内文件
+`agents/synthesizer_agent.py` 实跑的真实输出（2026-11-10）：
+
+```bash
+python3 - <<'PY'
+from tools.code_analyzer import CodeAnalyzer
+code = open("agents/synthesizer_agent.py", encoding="utf-8").read()
+for f in CodeAnalyzer().analyze_file("agents/synthesizer_agent.py", code, "python"):
+    print(f"[{f.severity}] {f.category} L{f.line}: {f.message} | 建议: {f.suggestion}")
+PY
+```
+
+```text
+[minor] style L88: Line 88 exceeds 120 characters (134) | 建议: Consider breaking the line
+[minor] style L114: Line 114 exceeds 120 characters (161) | 建议: Consider breaking the line
+```
+
+完整流水线（LLM 逐文件推理 → Synthesizer 汇总 → Reflector 打分 → Notifier 回帖）
+需要 DeepSeek key 与 GitHub token；上方片段是流水线第 2 步静态层的真实产物。
 
 ## 文件说明
 
@@ -246,3 +276,20 @@ tenacity
 ## 许可
 
 MIT。随便用。
+
+## Limits
+
+- **无自动化测试**（`tests/` 有意留空），仅手工端到端跑通；按"可运行原型"看待。
+- 静态分析层规则较浅（行长 / TODO / 基础 AST 检查），深度问题全靠 LLM 层。
+- Reflector 打分依赖 LLM 主观评估，<7 分退回最多 3 次；评分波动会直接影响重试次数。
+- 只支持 GitHub PR（Personal Access Token），GitLab/其他平台未接。
+
+## 结构导览
+
+| 路径 | 内容 |
+|------|------|
+| `agents/` | 5 个 Agent（fetcher / analyzer / synthesizer / reflector / notifier） |
+| `graph/workflow.py` | LangGraph 工作流（重试 ≤3 的循环逻辑） |
+| `tools/code_analyzer.py` | 免 key 免费的静态分析层（可独立复现，见上节） |
+| `api/main.py` | FastAPI 后端（`uvicorn api.main:app --port 8000`） |
+| `frontend/app.py` | Streamlit 前端（`streamlit run frontend/app.py`） |
