@@ -15,7 +15,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 from agents.base_agent import BaseAgent
 from tools.github_tool import GitHubTool, parse_pr_url
 from graph.state import AgentState, CodeFile

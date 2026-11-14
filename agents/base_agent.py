@@ -3,7 +3,7 @@ Base Agent class for the Code Review Multi-Agent System.
 All agents inherit from this base class.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import logging
 
 logger = logging.getLogger(__name__)

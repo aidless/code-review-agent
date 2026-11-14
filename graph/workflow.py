@@ -8,7 +8,7 @@ This module defines the agent orchestration graph:
 - Reflector Agent: Evaluate report quality, decide retry
 - Notifier Agent: Post report to GitHub PR
 """
-from typing import Any, Dict, Literal
+from typing import Literal
 from langchain_core.runnables import Runnable
 from langgraph.graph import StateGraph, END
 

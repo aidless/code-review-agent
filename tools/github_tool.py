@@ -11,7 +11,7 @@ This module handles:
 import os
 import re
 import requests
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 from dataclasses import dataclass
 
 

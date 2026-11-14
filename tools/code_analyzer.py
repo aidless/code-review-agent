@@ -9,8 +9,8 @@ Performs basic static analysis:
 """
 import re
 import ast
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field
+from typing import List
+from dataclasses import dataclass
 
 
 @dataclass

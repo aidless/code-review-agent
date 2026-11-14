@@ -6,7 +6,6 @@ Responsibilities:
 2. Post report to GitHub PR as a comment
 3. Output: notification_status, notification_url, notification_error
 """
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict

@@ -8,8 +8,6 @@ Simple UI:
 """
 import streamlit as st
 import requests
-import time
-from typing import Dict, Any
 
 
 # Page config
