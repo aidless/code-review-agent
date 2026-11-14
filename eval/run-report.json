@@ -1,0 +1,129 @@
+{
+ "total": 20,
+ "passed": 20,
+ "failed": 0,
+ "selftest": false,
+ "failed_by_axis": {},
+ "results": [
+  {
+   "id": "CR-01",
+   "axis": "analyzer/line-length",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "id": "CR-02",
+   "axis": "analyzer/line-length",
+   "ok": true,
+   "detail": "1|minor|style"
+  },
+  {
+   "id": "CR-03",
+   "axis": "analyzer/todo",
+   "ok": true,
+   "detail": "documentation|info|1"
+  },
+  {
+   "id": "CR-04",
+   "axis": "analyzer/bare-except",
+   "ok": true,
+   "detail": "1|major|3"
+  },
+  {
+   "id": "CR-05",
+   "axis": "analyzer/bare-except",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "id": "CR-06",
+   "axis": "analyzer/long-function",
+   "ok": true,
+   "detail": "0|1|Function 'f' is too long (51 lines)"
+  },
+  {
+   "id": "CR-07",
+   "axis": "analyzer/js-console",
+   "ok": true,
+   "detail": "1|0"
+  },
+  {
+   "id": "CR-08",
+   "axis": "github/url-parse",
+   "ok": true,
+   "detail": "owner/repo#123"
+  },
+  {
+   "id": "CR-09",
+   "axis": "github/url-parse",
+   "ok": true,
+   "detail": "widgets|7|int"
+  },
+  {
+   "id": "CR-10",
+   "axis": "github/url-reject",
+   "ok": true,
+   "detail": "raised ValueError"
+  },
+  {
+   "id": "CR-11",
+   "axis": "github/code-ext",
+   "ok": true,
+   "detail": "True|False|True"
+  },
+  {
+   "id": "CR-12",
+   "axis": "fetcher/lang-detect",
+   "ok": true,
+   "detail": "unknown|c|tsx"
+  },
+  {
+   "id": "CR-13",
+   "axis": "state/model-defaults",
+   "ok": true,
+   "detail": "unknown|0|0"
+  },
+  {
+   "id": "CR-14",
+   "axis": "state/model-required",
+   "ok": true,
+   "detail": "raised ValidationError"
+  },
+  {
+   "id": "CR-15",
+   "axis": "workflow/retry",
+   "ok": true,
+   "detail": "retry"
+  },
+  {
+   "id": "CR-16",
+   "axis": "workflow/retry",
+   "ok": true,
+   "detail": "continue|retry"
+  },
+  {
+   "id": "CR-17",
+   "axis": "api/app-meta",
+   "ok": true,
+   "detail": "CodeAgent Reviewer API|1.0.0"
+  },
+  {
+   "id": "CR-18",
+   "axis": "tests/collected",
+   "ok": true,
+   "detail": "12|15"
+  },
+  {
+   "id": "CR-19",
+   "axis": "docs/reflection-threshold",
+   "ok": true,
+   "detail": "max_reflection_iterations = 3"
+  },
+  {
+   "id": "CR-20",
+   "axis": "frontend/api-url",
+   "ok": true,
+   "detail": "value=\"http://localhost:8000\""
+  }
+ ]
+}

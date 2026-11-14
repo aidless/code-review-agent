@@ -293,3 +293,29 @@ MIT。随便用。
 | `tools/code_analyzer.py` | 免 key 免费的静态分析层（可独立复现，见上节） |
 | `api/main.py` | FastAPI 后端（`uvicorn api.main:app --port 8000`） |
 | `frontend/app.py` | Streamlit 前端（`streamlit run frontend/app.py`） |
+
+## 验收题库与复算
+
+`eval/cases.jsonl` 是 20 条可执行验收题（n=20，16 个 axis，同一 axis 最多 2 条），覆盖静态分析层、
+GitHub 工具层、状态模型、工作流条件边、API 契约与文档口径：行长阈值边界（120 字符不报 / 121 字符报）、
+TODO 与裸 except 的 category/severity、长函数 `>50` 行判据、JS 只拦 `console.log|debug`、PR URL 解析
+与 `/pull/abc` 拒绝、代码文件扩展名白名单（`.hpp` 收 / `.md` 不收 / 大小写不敏感）、扩展名→语言映射
+（`.hpp` 落到 unknown）、pydantic 默认值与必填校验、reflector 重试边界（count 与上限相等时放行）、
+FastAPI 的 title/version、以及从测试文件本身复算「15 passed」。其中 **≥12 条必须是 expr/raises 且真调
+本仓库 API 或真解析仓内文件**（现为 18 条 expr/raises + 2 条 doc），期望值不抄文档，都是现算出来的：
+
+```bash
+cd code-review-agent
+python3 eval/run_cases.py            # 20/20 cases passed，退出码 0
+python3 eval/run_cases.py --save     # 顺带把结果写进 eval/run-report.json
+python3 eval/run_cases.py --selftest # 篡改第一条期望值，必须变红（19/20，证明这套题会失败）
+python3 eval/run_cases.py --json     # 机器可读（含 failed_by_axis）
+```
+
+**数字如何复算**：`eval/run-report.json` 里每条 case 都带 `id` / `axis` / `detail`，把 `detail` 与
+`cases.jsonl` 里的 `verify` 代码一起看，就能从源码复现该数字；`--save` 重跑一次即可重建整份报告，
+不需要手工抄数。例如 `CR-06` 的 `detail` 是 `0|1|Function 'f' is too long (51 lines)`，对应的
+`verify` 就是现构造 50 行与 51 行函数体再跑 `CodeAnalyzer().analyze_file(...)`。
+
+**失败归因**：`run_cases.py` 不只报通过率，失败时按 `axis` 汇总（例如
+`analyzer/line-length: 1 条 —— CR-01`），直接指出是哪个模块的哪个口径坏了，不用逐条翻输出。
