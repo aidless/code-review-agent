@@ -21,3 +21,8 @@ models/
 *.bak
 
 *.bak*
+
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
