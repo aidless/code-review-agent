@@ -61,8 +61,11 @@ class AgentState(TypedDict):
     report: Optional[ReviewReport]
     synthesis_error: Optional[str]
     
-    # Reflector Agent output
+    # Reflector Agent output.
+    # reflection_score is a model self-score or a local heuristic, not a
+    # validated review-quality metric. reflection_score_kind says which.
     reflection_score: Optional[float]
+    reflection_score_kind: Optional[str]
     needs_replan: bool
     reflection_feedback: Optional[str]
     reflection_count: int  # Number of reflection iterations
@@ -71,6 +74,8 @@ class AgentState(TypedDict):
     notification_status: Optional[str]
     notification_url: Optional[str]
     notification_error: Optional[str]
+    # True skips GitHub comment creation. Missing means dry-run as well.
+    dry_run: bool
     
     # Control flow
     current_step: str

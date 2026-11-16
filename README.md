@@ -4,7 +4,13 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-一个自动帮你审查 GitHub Pull Request 的工具。你把 PR 链接丢给它，5 个 AI Agent 会分工合作，自动分析代码质量，最后把审查报告贴到 PR 的评论区。
+LangGraph 上的 5-Agent GitHub PR 审查原型（fetcher / analyzer / synthesizer / reflector / notifier）。
+
+**离线能证明的**：`make check` 不需要 `GITHUB_TOKEN` 或模型 key。它跑 pytest：AST 分析器、用 mock 替换的 GitHub 与聊天模型、Reflector 自评分 `< 7` 时退回（最多 3 次）、Notifier dry-run 不发评论。
+
+**离线不能证明的**：对真实 PR 的审查质量。Reflector 的分数是模型给本流水线自己报告的自评分，不是经过人工或基准校验的质量指标。本仓库没有 PyPI 包，也没有“已在大量真实 PR 上验证”的数据。失败模式见 [FAILURE_MODES.md](FAILURE_MODES.md)。
+
+作者与仓库路径：[aidless/code-review-agent](https://github.com/aidless/code-review-agent)（GitHub 用户 aidless）。评论页脚里的链接指向这个仓库。
 
 ## 项目结构
 
@@ -13,15 +19,14 @@ code-review-agent/
 +-- agents/              # 5 个 Agent（fetcher/analyzer/synthesizer/reflector/notifier）
 +-- graph/               # LangGraph 状态机（state.py + workflow.py）
 +-- tools/               # github_tool.py（GitHub API）+ code_analyzer.py（AST 静态分析）
-+-- api/main.py          # FastAPI 后端（POST /review）
-+-- frontend/app.py      # Streamlit 前端
-+-- tests/test_analyzer.py  # 15 个离线单测（纯逻辑）
++-- api/main.py          # FastAPI 后端（POST /review，默认不发评论）
++-- frontend/app.py      # Streamlit 前端（从仓库根目录：streamlit run frontend/app.py）
++-- tests/               # 离线 pytest（AST、mock 的重试环、notifier dry-run、负例）
 +-- requirements.txt
++-- FAILURE_MODES.md
 ```
 
-**验证过什么**：没有自动化测试（`tests/` 有意留空），只做过手工端到端跑通——给一个真实 PR 链接能出报告并回帖。请按"可运行原型"看待，不要按"可复现评测"看待。
-
-**怎么跑**：`pip install -r requirements.txt`，配置 `GITHUB_TOKEN` 与模型 API key，然后 `streamlit run app.py`。
+**怎么跑离线检查**（不需要 token）：`make check`。它会先 `pip install`（这一步要网络拉依赖），再跑测试。带界面的用法见下面「怎么用」，需要 key，并且默认不往 PR 贴评论。
 
 ---
 
@@ -49,7 +54,7 @@ code-review-agent/
 为什么要用 5 个 Agent 而不是一个 LLM 调用？因为：
 - 每个 Agent 只做一件事，出了问题好定位
 - Fetcher 拉完数据后，Analyzer 崩了不用重新拉
-- Reflector 可以反复打回重做，直到报告质量达标
+- Reflector 可以打回重做；自评分低于 7 且未到 3 次时退回 Analyzer。到 3 次后仍会进入 Notifier（见 FAILURE_MODES.md）
 - 以后想加功能（比如安全审查），加一个 Agent 就行
 
 ---
@@ -86,20 +91,18 @@ GITHUB_TOKEN=ghp_你的token
 
 ### 启动
 
-需要开两个终端窗口：
+从仓库根目录开两个终端。文件在 `api/main.py` 和 `frontend/app.py`，不是仓库根上的 `app.py`。
 
 **终端 1 -- 启动后端（FastAPI）**
 ```bash
-cd api
-python main.py
-# 会在 http://localhost:8000 启动
+python -m uvicorn api.main:app --port 8000
+# 等价：python api/main.py
 ```
 
 **终端 2 -- 启动前端（Streamlit）**
 ```bash
-cd frontend
-streamlit run app.py
-# 会在 http://localhost:8501 启动
+streamlit run frontend/app.py
+# 等价：cd frontend && streamlit run app.py
 ```
 
 ### 使用
@@ -108,14 +111,14 @@ streamlit run app.py
 2. 在输入框里粘贴 GitHub PR 的链接（比如 https://github.com/owner/repo/pull/123）
 3. 点"开始审查"
 4. 等 1-3 分钟
-5. 看生成的审查报告
+5. 看生成的审查报告。默认不往 PR 贴评论；只有勾选 “Post the report as a PR comment” 且 token 有效时才会贴。
 
 ---
 
 ## 示例审查输出（Analyzer Agent 静态分析部分，真实运行）
 
 静态分析层不需要 LLM 和 API key，可以直接复现——下面是对仓内文件
-`agents/synthesizer_agent.py` 实跑的真实输出（2026-11-10）：
+`agents/synthesizer_agent.py` 的输出（2026-11-16 在本树重跑，与下面两行一致）：
 
 ```bash
 python3 - <<'PY'
@@ -131,8 +134,7 @@ PY
 [minor] style L114: Line 114 exceeds 120 characters (161) | 建议: Consider breaking the line
 ```
 
-完整流水线（LLM 逐文件推理 → Synthesizer 汇总 → Reflector 打分 → Notifier 回帖）
-需要 DeepSeek key 与 GitHub token；上方片段是流水线第 2 步静态层的真实产物。
+上面只是静态分析。完整流水线还要 DeepSeek key 才能调用模型，要 GitHub token 才能拉 PR。默认 `post_comment` 为 false，不会回帖。本仓库没有附带某次真实 PR 回帖的记录。
 
 ## 文件说明
 
@@ -144,7 +146,7 @@ PY
 | `fetcher_agent.py` | 第 1 个 Agent：拉数据。接收 PR 链接，调用 GitHub API 获取 PR 的标题、描述、所有文件的 diff（代码改动）。输出：PR 基本信息 + 所有代码文件内容。 |
 | `analyzer_agent.py` | 第 2 个 Agent：分析代码。对每个文件做两件事：(1) 静态分析（AST 语法树检查，找语法错误、未使用变量、过长函数等）；(2) LLM 分析（用 DeepSeek 理解代码逻辑，找设计问题、潜在 bug）。输出：问题列表，每个问题有严重程度和位置。 |
 | `synthesizer_agent.py` | 第 3 个 Agent：写报告。把 Analyzer 输出的问题列表，加上 PR 的基本信息，交给 LLM 生成一份结构化的 Markdown 审查报告。报告分"必须修复"、"建议修复"、"小问题"、"做得好的地方"四个部分。 |
-| `reflector_agent.py` | 第 4 个 Agent：审查报告质量。用另一个 LLM 调用给报告打分（1-10），从覆盖面、深度、可操作性、清晰度四个维度评估。如果分数低于 7，设置 needs_replan=True，LangGraph 会把流程退回到 Analyzer 重新分析。最多重试 3 次。 |
+| `reflector_agent.py` | 第 4 个 Agent：让聊天模型给**本流水线刚写出的报告**打自评分（1-10），提示里写了覆盖面、深度、可操作性、清晰度。`score < 7` 时 `needs_replan=True`，LangGraph 退回 Analyzer。`reflection_count` 达到 3 后不再退回。这个分数不是经过校验的质量指标。 |
 | `notifier_agent.py` | 第 5 个 Agent：发通知。把最终的审查报告通过 GitHub API 贴到 PR 的评论区。同时把报告返回给前端显示。 |
 
 ### graph/ -- 流程控制
@@ -158,8 +160,8 @@ PY
 
 | 文件 | 做什么 |
 |------|--------|
-| `github_tool.py` | GitHub API 的封装。处理认证（用 Personal Access Token）、分页（PR 可能有几百个文件）、错误重试、速率限制。 |
-| `code_analyzer.py` | 静态代码分析。用 Python 的 AST 模块解析代码语法树，检查：未使用的 import、过长的函数（超过 50 行）、硬编码的字符串、缺少类型注解等。不需要 LLM，速度快，免费。 |
+| `github_tool.py` | GitHub API 的封装：解析 PR URL、用 token 做一次 GET 拉 PR 元数据和一次 GET 拉文件列表、在 `dry_run=False` 且 token 存在时 POST 一条 review comment。没有分页循环，也没有在代码里实现速率限制缓存。 |
+| `code_analyzer.py` | 静态代码分析，不调用 LLM。已实现的检查：行长超过 120、TODO/FIXME/HACK/XXX、裸 `except`、函数超过 50 行、JS/TS 的 `console.log`/`console.debug`。不检查未使用的 import、硬编码字符串、缺类型注解，也会漏掉 `tests/fixtures/seeded_empty_mean.py` 这种空列表除法。 |
 
 ### api/ -- 后端
 
@@ -183,78 +185,49 @@ PY
 
 ---
 
-## 技术细节（面试用）
+## 技术细节
 
-### 为什么用 LangGraph 而不是自己写循环？
+`graph/workflow.py` 用 LangGraph 把五个节点串起来。Reflector 之后的条件边是 `_should_retry`：`needs_replan` 为真且 `reflection_count < max_reflection_iterations`（默认 3）才退回 Analyzer，否则进入 Notifier。
 
-LangGraph 提供了：
-- **状态管理**：数据结构有类型定义，自动校验
-- **条件分支**：Reflector 打分后自动判断是退回还是继续
-- **循环支持**：原生支持"Analyzer -> Reflector -> Analyzer"这种重试循环
-- **可观测性**：可以用 LangSmith 追踪每个 Agent 的输入输出
-- **断点续传**：可以暂停/恢复流程（Human-in-the-Loop）
+本仓库**没有**接入 LangSmith，也**没有**配置 Human-in-the-Loop 断点。`requirements.txt` 里有 `tenacity`，agent 代码没有 import 它，失败时不会做指数退避。GitHub 调用没有分页，也没有响应缓存。
 
-自己写 Python 循环也能实现，但要手动管理状态、错误处理、重试逻辑，代码量会大很多。
-
-### LLM 打分准不准？
-
-这是个好问题。LLM 打分确实有主观性。我的缓解措施：
-- 用 few-shot prompting，给 LLM 看几个"好报告"和"差报告"的例子，让它校准打分标准
-- 分析和反思用同一个 LLM（DeepSeek），避免模型之间的偏差
-- 打分维度固定（覆盖面、深度、可操作性、清晰度），每个维度有明确标准
-
-### 遇到 LLM 调用失败怎么办？
-
-- 重试：用 tenacity 库做指数退避重试
-- 降级：如果 LLM 挂了，退回到纯静态分析（AST 检查），至少能抓到基础问题
-- 速率限制：GitHub API 有速率限制（认证用户 5000 次/小时），用缓存避免重复请求
-
-**Fail-closed（真实代码）**：报告质量门是**fail-closed**——Reflector 打分 `< 7.0` 时
-`needs_replan=True`，**拒绝放行**低质量报告，退回 Analyzer 重做（最多 3 次）；LLM 调用失败时
-`_evaluate_report` 返回保守分（>500 字符→7.0，否则 4.0），**不伪造**高质量分。整体上「LLM 挂了
-退回到纯静态 AST 分析」——宁可输出保守结果，不把不可靠的 LLM 报告当成品。详见 `bench/README.md`。
+Reflector 与 Analyzer、Synthesizer 默认都请求 `deepseek-chat`（`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`）。提示词列出四个维度，**没有**附上「好报告 / 差报告」的 few-shot 样例。返回的数字是模型自评分；解析失败时走字符数启发式（报告长于 500 字符记 7.0，否则 4.0）。7.0 不触发重试。Analyzer 的 LLM 调用失败时丢掉该文件的模型意见，静态分析结果仍然保留。这些都不是 fail-closed 的质量门。详见 [FAILURE_MODES.md](FAILURE_MODES.md)。
 
 ---
 
 ## 测试
 
 ```bash
-cd code-review-agent
-python -m pytest tests/ -q    # 15 passed
+make check    # pip install，然后 pytest（含覆盖率表）和 eval/run_cases.py
 ```
 
-15 个离线单测覆盖**纯逻辑**部分：`tools/code_analyzer.py` 的 AST 静态分析
-（行长度、TODO、裸 except、长函数、无效 Python 优雅降级、JS console.log、
-通用回退、dataclass 字段）和 `tools/github_tool.parse_pr_url`（基本/后缀/锚点/
-4 个反例）。Agent 的 LLM 路径、FastAPI 与 Streamlit 服务**有意不覆盖**
-（需要真实 Key，不伪造），详见 `tests/README.md`。
+这次改动在本树跑出 **26 passed**（`python3 -m pytest tests -q`，无 token）。构成：
+
+- `tests/test_analyzer.py`：15 条。AST 与 `parse_pr_url`。`eval` 题 CR-18 从该文件数出 12 个测试函数、展开后 15 条，**不代表全库条数**。
+- `tests/test_negative_cases.py`：8 条。空列表除法漏报、diff 只 GET 一次、LLM 提示截到 200 行、报告截到 3000 字符、启发式 500/501 边界、dry-run、缺 token、以及仅在 mock 下才会走到的 POST。
+- `tests/test_offline_pipeline.py`：3 条。脚本化自评分 4.0 连打三次后退尽、4.0 然后 8.0 时第二次停、API 默认 `dry_run`。
+
+脚本化的 4.0 / 8.0 是测试输入，不是测出来的审查质量。Streamlit 页面没有进 pytest。覆盖率表覆盖 `agents`、`graph`、`tools`、`api`，百分比以 `make check` 的输出为准，不写死在这里。
 
 ## 证明什么 / 不证明什么
 
-**证明：** PR URL 解析器在无网络下可正确提取 owner/repo/PR 号并拒绝非 PR 链接；
-AST 静态分析器能识别行长度、TODO、裸 except、长函数等常见问题，并在输入是
-diff patch（非完整 Python）时优雅降级不崩溃。
+**证明：** 无 token 时，URL 解析、AST 规则、mock 掉 GitHub 与聊天客户端之后的重试环、以及 notifier 在 dry-run 下不调用 `requests.post`。
 
-**不证明：** LLM 审查质量（Analyzer/Reflector/Synthesizer 需要 `DEEPSEEK_API_KEY`
-与 `GITHUB_TOKEN`，离线单测未触及，也不伪造结果）；端到端审查流程
-（LangGraph 状态机依赖上述 Agent，未在离线测试中实例化）；报告是否真的被
-贴回 GitHub PR（notifier 需要真实 Token，未测试）。
+**不证明：** 真实 PR 上的审查质量；模型自评分是否可靠；一条评论是否曾经被贴到某个真实 PR。live POST 只在 `requests.post` 被替换的测试里走到，那次测试没有创建 GitHub 评论。
 
 ## 复现
 
 ```bash
+git clone https://github.com/aidless/code-review-agent.git
 cd code-review-agent
-python -m pytest tests/ -q     # 15 passed（离线，无网络无 Key）
+make check
 
-# 单点复算：URL 解析
-python -c "
+python3 -c "
 import sys; sys.path.insert(0,'.')
 from tools.github_tool import parse_pr_url
 print(parse_pr_url('https://github.com/owner/repo/pull/123'))  # ('owner','repo',123)
 "
 ```
-
-15 这个数字来自 `pytest tests/ -q` 的实际收集与通过数，可在此树复算。
 
 ---
 
@@ -268,7 +241,7 @@ uvicorn
 streamlit
 requests
 python-dotenv
-tenacity
+tenacity   # 列在 requirements.txt 中；当前 agent 代码未 import
 ```
 
 ---
@@ -279,10 +252,10 @@ MIT。随便用。
 
 ## Limits
 
-- **无自动化测试**（`tests/` 有意留空），仅手工端到端跑通；按"可运行原型"看待。
-- 静态分析层规则较浅（行长 / TODO / 基础 AST 检查），深度问题全靠 LLM 层。
-- Reflector 打分依赖 LLM 主观评估，<7 分退回最多 3 次；评分波动会直接影响重试次数。
-- 只支持 GitHub PR（Personal Access Token），GitLab/其他平台未接。
+- 离线套件是 26 条 pytest，外加 `eval/cases.jsonl` 的 20 题。它不测量真实 PR 的审查质量。
+- 静态分析只有行长、TODO、裸 except、长函数、JS `console.log`/`debug`。`tests/fixtures/seeded_empty_mean.py` 的空列表除法是一条复现得到的漏报。
+- Reflector 分数是模型自评分。低于 7 且次数未到 3 才退回；第 3 次之后照样进入 Notifier。长报告上的启发式 7.0 不会退回。
+- 只接 GitHub PR。默认不发评论；`post_comment: true` 且 token 有效时会发。没有 PyPI 包。
 
 ## 结构导览
 
@@ -291,7 +264,7 @@ MIT。随便用。
 | `agents/` | 5 个 Agent（fetcher / analyzer / synthesizer / reflector / notifier） |
 | `graph/workflow.py` | LangGraph 工作流（重试 ≤3 的循环逻辑） |
 | `tools/code_analyzer.py` | 免 key 免费的静态分析层（可独立复现，见上节） |
-| `api/main.py` | FastAPI 后端（`uvicorn api.main:app --port 8000`） |
+| `api/main.py` | FastAPI 后端（`python -m uvicorn api.main:app --port 8000`） |
 | `frontend/app.py` | Streamlit 前端（`streamlit run frontend/app.py`） |
 
 ## 验收题库与复算
@@ -301,7 +274,7 @@ GitHub 工具层、状态模型、工作流条件边、API 契约与文档口径
 TODO 与裸 except 的 category/severity、长函数 `>50` 行判据、JS 只拦 `console.log|debug`、PR URL 解析
 与 `/pull/abc` 拒绝、代码文件扩展名白名单（`.hpp` 收 / `.md` 不收 / 大小写不敏感）、扩展名→语言映射
 （`.hpp` 落到 unknown）、pydantic 默认值与必填校验、reflector 重试边界（count 与上限相等时放行）、
-FastAPI 的 title/version、以及从测试文件本身复算「15 passed」。其中 **≥12 条必须是 expr/raises 且真调
+FastAPI 的 title/version，以及从 `tests/test_analyzer.py` 复算「12 个测试函数、展开 15 条」（CR-18）。全库 pytest 是 26 条，不由 CR-18 代表。其中 **≥12 条必须是 expr/raises 且真调
 本仓库 API 或真解析仓内文件**（现为 18 条 expr/raises + 2 条 doc），期望值不抄文档，都是现算出来的：
 
 ```bash

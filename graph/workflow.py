@@ -26,7 +26,7 @@ def create_workflow() -> Runnable:
     
     Flow:
     1. Fetcher -> Analyzer -> Synthesizer -> Reflector
-    2. Reflector decides: if needs_replan, go back to Analyzer; else go to Notifier
+    2. Reflector decides: if needs_replan and reflection_count < max, go back to Analyzer; else go to Notifier
     3. Notifier -> END
     
     Returns:

@@ -7,8 +7,8 @@
 
 | 先行 | 真实内容 | 与本仓库的关系 |
 |---|---|---|
-| **LangGraph**（LangChain 官方） | 有状态图编排：类型化状态、条件分支、原生循环、可观测性、断点续传 | **借鉴**：本仓库用它定义 5-Agent 工作流（`graph/workflow.py`），Reflector→Analyzer 重试循环、HITL 暂停都靠它 |
-| **LangSmith** | 追踪每个节点的输入/输出 | **借鉴**：可观测性（README 技术细节） |
+| **LangGraph**（LangChain 官方） | 有状态图编排：类型化状态、条件分支、循环 | **本仓库用它**定义 5-Agent 工作流（`graph/workflow.py`）和 Reflector→Analyzer 重试。没有配置断点或 checkpointer |
+| **LangSmith** | 追踪每个节点的输入/输出 | **未接入**。仓库里没有 LangSmith 客户端调用 |
 
 ## 2. 自动代码审查（LLM Agent）
 
@@ -25,13 +25,13 @@
 
 ## 4. 相对先行的定位与边界
 
-- **独特材料**：本仓库的增量不是新算法，而是把「自动代码审查」做成**可复现、可审计、可降级**的
-  5-Agent 状态机——LLM 失败时降级到纯 AST 静态分析，报告质量有显式反射门。
-- **不声称**：①不声称 LLM 审查质量（离线单测未触及，也不伪造）；②不声称端到端流程已在真实 PR 验证；
-  ③不声称报告一定被贴回 GitHub（notifier 需真实 Token，未测试）。
-- **主要局限**：15 个单测只覆盖纯逻辑；Agent 的 LLM 路径、FastAPI、Streamlit **有意不覆盖**（需真实 Key）。
+- **定位**：5-Agent 状态机原型。模型调用失败时 Analyzer 留下 AST 结果，Reflector 改用字符数启发式。
+  自评分不是校验过的质量门。AST 会漏报，见 `tests/fixtures/seeded_empty_mean.py`。
+- **不声称**：①不把模型自评分当成审查质量；②不声称在真实 PR 上验证过；③不声称测试往 GitHub 贴过评论
+  （dry-run 是默认，live 路径的测试替换了 `requests.post`）。没有 PyPI 包。
+- **离线范围**：26 条 pytest。Streamlit 页面不在其中。聊天模型在这些测试里是替换掉的。
 
 ## 5. 一句话定位
 
-> 相对商业 AI 代码审查（CodeRabbit/Codacy），本仓库把审查流程做成**开源、显式 5-Agent、带反射质量门、
-> 可降级到静态分析**的实现；相对 pylint/flake8 的纯静态检查，它**叠加 LLM 语义分析**但保留静态检查作为降级路径。
+> 相对商业 AI 代码审查（CodeRabbit/Codacy），本仓库是开源的 5-Agent 原型，Reflector 只产模型自评分；
+> 相对 pylint/flake8，静态检查更窄，模型意见没有在真实 PR 上对照过。

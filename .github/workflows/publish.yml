@@ -1,3 +1,5 @@
+# Not a published package. This repo has no pyproject.toml, setup.py, or setup.cfg.
+# The upload step is skipped unless that metadata exists. Do not call this a PyPI project.
 name: Publish to PyPI
 on:
   workflow_dispatch:

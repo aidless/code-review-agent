@@ -51,22 +51,24 @@ class ReflectorAgent(BaseAgent):
             if not report_data:
                 return {
                     "reflection_score": 5.0,
+                    "reflection_score_kind": "missing_report",
                     "needs_replan": True,
                     "reflection_feedback": "No report to evaluate",
                     "reflection_count": state.get("reflection_count", 0) + 1,
                     "current_step": "reflector_done",
                 }
             
-            # Evaluate report quality using LLM
-            score, feedback = await self._evaluate_report(report_data)
+            # Model self-score, or a heuristic if that call fails. Not a validated metric.
+            score, feedback, score_kind = await self._evaluate_report(report_data)
             
-            # Decision: if score < 7, needs replan
+            # Decision: if score < 7, needs replan. A score of exactly 7.0 does not.
             needs_replan = score < 7.0
             
-            self.logger.info(f"[ReflectorAgent] Score: {score}/10, needs_replan: {needs_replan}")
+            self.logger.info(f"[ReflectorAgent] Score: {score}/10 ({score_kind}), needs_replan: {needs_replan}")
             
             return {
                 "reflection_score": score,
+                "reflection_score_kind": score_kind,
                 "needs_replan": needs_replan,
                 "reflection_feedback": feedback,
                 "reflection_count": state.get("reflection_count", 0) + 1,
@@ -77,23 +79,28 @@ class ReflectorAgent(BaseAgent):
             self.logger.error(f"[ReflectorAgent] Error: {e}", exc_info=True)
             return {
                 "reflection_score": 5.0,
+                "reflection_score_kind": "error_fallback",
                 "needs_replan": True,
                 "reflection_feedback": f"Error during evaluation: {e}",
                 "reflection_count": state.get("reflection_count", 0) + 1,
                 "current_step": "reflector_error",
             }
     
-    async def _evaluate_report(self, report_data: Dict) -> tuple[float, str]:
+    async def _evaluate_report(self, report_data: Dict) -> tuple[float, str, str]:
         """
-        Use LLM to evaluate report quality.
-        
+        Ask a chat model to score the report this pipeline just wrote.
+
         Returns:
-            (score 1-10, feedback string)
+            (score, feedback, kind). kind is "model_self_score" when the model
+            response parses, or "heuristic_fallback" when the call fails.
+            Neither kind is a validated review-quality metric.
         """
         report_markdown = report_data.get("report_markdown", "")
         issues = report_data.get("issues", [])
         
         prompt = f"""You are a code review quality evaluator.
+
+The score is your own judgment of the report text below. It is not a calibrated quality metric.
 
 Evaluate this code review report on a scale of 1-10 based on:
 1. **Coverage** (1-10): Does it cover all important issues in the code?
@@ -134,11 +141,12 @@ Output ONLY the JSON object:"""
             score = float(result.get("score", 5.0))
             feedback = result.get("feedback", "")
             
-            return score, feedback
+            return score, feedback, "model_self_score"
             
         except Exception as e:
             self.logger.warning(f"[ReflectorAgent] LLM evaluation failed: {e}")
-            # Fallback: simple heuristic
+            # Reports longer than 500 characters get 7.0, which does not reopen
+            # the retry gate (the gate is score < 7.0). Shorter reports get 4.0.
             score = 7.0 if len(report_markdown) > 500 else 4.0
             feedback = "LLM evaluation failed, using heuristic"
-            return score, feedback
+            return score, feedback, "heuristic_fallback"

@@ -1,27 +1,26 @@
 # tests/
 
-离线测试套件，针对**纯逻辑**部分（不需要 LLM、不需要网络）：
+离线套件。不需要 `GITHUB_TOKEN`，不需要模型 key，不访问 GitHub 或模型 API。
+`tests/conftest.py` 会拦住发往 `api.github.com`、`api.deepseek.com`、`api.openai.com` 的 `requests` / `httpx` 调用。
 
-| 文件 | 覆盖 | 数量 |
+| 文件 | 覆盖 | 条数（pytest 收集） |
 |---|---|---|
-| `test_analyzer.py` | `tools/code_analyzer.py`（AST 静态分析）+ `tools/github_tool.parse_pr_url`（URL 解析） | 15 |
+| `test_analyzer.py` | `CodeAnalyzer` 与 `parse_pr_url` | 15 |
+| `test_negative_cases.py` | AST 漏报、单次 GET、截断、启发式边界、dry-run、缺 token、mock 下的 POST | 8 |
+| `test_offline_pipeline.py` | 自评分 `< 7` 的重试环（最多 3 次）、API 默认 dry-run | 3 |
+
+合计 **26**。以 `python3 -m pytest tests -q` 的输出为准。`test_analyzer.py` 的 15 条不是全库条数。
 
 ## 运行
 
 ```bash
-cd code-review-agent
-python -m pytest tests/ -q     # 15 passed
+make check
 ```
 
-## 有意不覆盖的部分
+聊天模型在这些测试里被替换成脚本。脚本返回的 4.0 或 8.0 是测试输入，不是审查质量分。
+Reflector 在真实运行时产出的数字是模型自评分，见 `FAILURE_MODES.md`。
 
-- `agents/`（fetcher / analyzer / synthesizer / reflector / notifier）走真实
-  LLM 路径，需要 `DEEPSEEK_API_KEY` 与 `GITHUB_TOKEN`，离线测试不伪造。
-- `api/main.py`（FastAPI 服务）与 `frontend/app.py`（Streamlit）需要服务进程，
-  手动验证，不纳入单测。
-- `graph/workflow.py`（LangGraph 编排）依赖上述 LLM Agent，未在离线单测中实例化。
+## 有意不覆盖
 
-## 与 agent-platform 的区别
-
-`agent-platform` 有 `make smoke-offline` / `make gates` 门禁；本仓库体量较小，
-先覆盖纯逻辑。若后续要扩，建议每个模块一个 `--smoke` 入口，而不是堆 pytest。
+- Streamlit 页面（`frontend/app.py`）没有进 pytest。
+- 没有任何一条测试对真实 PR 打过分或贴过评论。
