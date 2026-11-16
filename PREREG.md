@@ -16,33 +16,33 @@ R1：能否用一个**显式 5-Agent LangGraph 状态机**自动审查 GitHub PR
 | Fetcher | GitHub API 拉 PR 元数据 + 全文件 diff | PR 链接 → PR 信息 + 文件内容 |
 | Analyzer | AST 静态分析 + LLM 语义分析 | 文件内容 → 问题列表 |
 | Synthesizer | 汇总为 Markdown | 问题列表 → 报告 |
-| Reflector | 另一 LLM 打分（1-10，四维度） | 报告 → score, needs_replan |
+| Reflector | 同一类聊天模型给本流水线的报告打自评分（1-10）。不是校验过的质量指标 | 报告 → score, score_kind, needs_replan |
 | Notifier | GitHub API 贴评论 + 返回前端 | 报告 → PR 评论 |
 
 ## 3. 声明假设 / 阈值（预先设定）
 
-- **反射阈值**：报告质量分 `< 7.0` → `needs_replan=True`（退回 Analyzer 重做）。
-- **最大重试**：`max_reflection_iterations = 3`（超限放行，避免死循环）。
-- **打分维度**：覆盖面 / 深度 / 可操作性 / 清晰度，各 1-10。
-- **LLM 失败降级**：`_evaluate_report` 返回保守分（>500 字符→7.0，否则 4.0）——**不伪造**高质量分。
+- **反射阈值**：自评分 `< 7.0` → `needs_replan=True`（退回 Analyzer）。等于 7.0 不退回。
+- **最大重试**：`max_reflection_iterations = 3`。计数达到 3 后进入 Notifier，即使 `needs_replan` 仍为真。
+- **打分维度**：提示词里写了覆盖面 / 深度 / 可操作性 / 清晰度。没有 few-shot 样例。
+- **LLM 失败**：`_evaluate_report` 在调用失败时用字符数启发式（长于 500 字符 → 7.0，否则 4.0）。7.0 会通过门。这不是校验过的质量分。
 
 ## 4. 评测方案 / 成功标准
 
-- **成功**：`python -m pytest tests/ -q` 全部通过（**15 passed**，离线、无网络、无 Key）。
-- **复算**：单点复算 `parse_pr_url('https://github.com/owner/repo/pull/123')` → `('owner','repo',123)`。
-- **覆盖**：AST 静态分析（行长度/TODO/裸 except/长函数/console.log/无效 Python 优雅降级）+ URL 解析
-  （基本/后缀/锚点/4 反例）。
-- **诚实边界**：LLM 路径、FastAPI、Streamlit **有意不覆盖**（需真实 Key，不伪造）。
+- **成功**：`make check` 通过。其中 `python3 -m pytest tests -q` 在本树为 **26 passed**（无 token）。
+- **复算**：`parse_pr_url('https://github.com/owner/repo/pull/123')` → `('owner','repo',123)`。
+- **覆盖**：AST 与 URL 解析（`test_analyzer.py` 15 条）；mock 的 GitHub 与聊天客户端下的重试环和 notifier dry-run；`FAILURE_MODES.md` 里的负例。
+- **诚实边界**：脚本化的分数不是审查质量。Streamlit 未进 pytest。没有真实 PR 评测。
 
 ## 5. 边界（证明什么 / 不证明什么）
 
 **证明（能承诺的）**：
 - URL 解析器无网络下正确提取并拒绝非 PR 链接。
-- AST 分析器识别常见问题，diff patch 输入优雅降级。
-- 15 个离线单测在此树可复算。
+- AST 分析器识别它实现了的那些问题，diff patch 输入解析失败时不崩溃。
+- mock 掉 GitHub 与聊天客户端后，自评分低于 7 会重试，第 3 次后 dry-run 结束且不 POST。
+- 26 条离线 pytest 可在此树复算。条数以 pytest 输出为准。
 
 **不证明（明确不声称）**：
-- LLM 审查质量（需真实 `DEEPSEEK_API_KEY` 与 `GITHUB_TOKEN`，离线未触及）。
-- 端到端审查流程（依赖上述 Agent，未在离线测试实例化）。
-- 报告确实贴回 GitHub PR（notifier 需真实 Token，未测试）。
+- 模型自评分等于审查质量。
+- 在真实 PR 上的审查效果或回帖记录。
+- `dry_run=False` 且 token 有效时的那次 POST 曾在测试中打到 GitHub（测试替换了 `requests.post`）。
 - 非外部时间戳预注册。

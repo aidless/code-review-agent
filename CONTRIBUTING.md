@@ -13,11 +13,13 @@ pip install -r requirements.txt   # if present
 ## Verifying your change
 
 ```bash
-python3 -m compileall agents
+make check
 ```
 
-If the repository has a `Makefile`, `make check` or the closest equivalent runs the same
-checks as CI. Please run it before opening a pull request.
+`make check` is the same offline path CI runs: install dependencies, pytest with a
+coverage table for `agents`, `graph`, `tools`, and `api`, then `eval/run_cases.py`.
+It does not need `GITHUB_TOKEN` or a model key. The coverage percentage is line
+coverage of this prototype, not a review-quality score.
 
 ## Pull requests
 

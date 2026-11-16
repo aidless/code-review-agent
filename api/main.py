@@ -30,7 +30,7 @@ from graph.workflow import create_workflow
 # Initialize FastAPI
 app = FastAPI(
     title="CodeAgent Reviewer API",
-    description="AI-powered code review system with Multi-Agent architecture",
+    description="Multi-agent PR review prototype. Reflector scores are model self-scores, not a validated quality metric. Comments are posted only when post_comment is true.",
     version="1.0.0",
 )
 
@@ -48,6 +48,8 @@ app.add_middleware(
 class ReviewRequest(BaseModel):
     pr_url: str
     github_token: Optional[str] = None
+    # False keeps the notifier in dry-run. True posts a PR comment when a token is set.
+    post_comment: bool = False
 
 
 class ReviewResponse(BaseModel):
@@ -55,6 +57,11 @@ class ReviewResponse(BaseModel):
     status: str  # pending, running, completed, failed
     report: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    notification_status: Optional[str] = None
+    reflection_score: Optional[float] = None
+    # model_self_score, heuristic_fallback, error_fallback, or missing_report.
+    # None of these is a validated review-quality metric.
+    reflection_score_kind: Optional[str] = None
 
 
 # In-memory storage (for MVP)
@@ -103,6 +110,7 @@ async def start_review(request: ReviewRequest):
             "report": None,
             "synthesis_error": None,
             "reflection_score": None,
+            "reflection_score_kind": None,
             "needs_replan": False,
             "reflection_feedback": None,
             "reflection_count": 0,
@@ -112,6 +120,7 @@ async def start_review(request: ReviewRequest):
             "current_step": "start",
             "error_message": None,
             "max_reflection_iterations": 3,
+            "dry_run": not request.post_comment,
         }
         
         # Create and run workflow
@@ -130,6 +139,9 @@ async def start_review(request: ReviewRequest):
             status="completed",
             report=result.get("report"),
             error=result.get("error_message"),
+            notification_status=result.get("notification_status"),
+            reflection_score=result.get("reflection_score"),
+            reflection_score_kind=result.get("reflection_score_kind"),
         )
         
     except Exception as e:

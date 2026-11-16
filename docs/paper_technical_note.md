@@ -5,39 +5,41 @@
 
 ## 1. 问题
 
-自动审查 GitHub Pull Request 需要：拉取 diff → 分析代码质量 → 汇总报告 → 评估报告质量 →
-发布到 PR。单一 LLM 调用难以做到「分析出问题可追踪、报告质量可验证、LLM 失败仍可降级」。
+这个原型把「拉 diff → 静态分析加模型意见 → 写报告 → 模型给报告打自评分 → 可选地发评论」
+拆成五个节点。自评分没有外部对照，不能把它写成「报告质量已验证」。
 
 ## 2. 架构：5-Agent LangGraph 状态机
 
 ```
-[Fetcher] --diff--> [Analyzer] --问题列表--> [Synthesizer] --报告--> [Reflector] --评分-->
-     ^                                                                    |
-     |                        needs_replan=True (score<7.0, ≤3 次)         v
-     +---------------------------------------------------------------[Notifier] --> PR 评论
+[Fetcher] --> [Analyzer] --> [Synthesizer] --> [Reflector]
+                 ^                                  |
+                 |   needs_replan 且 reflection_count < 3
+                 +----------------------------------+
+                                                    |  否则（含第 3 次仍低于 7）
+                                                    v
+                                               [Notifier]  默认 dry-run，不贴评论
 ```
 
 | Agent | 真实职责 | 文件 |
 |---|---|---|
-| Fetcher | GitHub API 拉 PR 元数据 + 全文件 diff（分页/限速/缓存） | `agents/fetcher_agent.py` |
-| Analyzer | 每文件：AST 静态分析 + LLM 语义分析 | `agents/analyzer_agent.py` |
-| Synthesizer | 汇总为 Markdown（必须修复/建议修复/小问题/做得好） | `agents/synthesizer_agent.py` |
-| Reflector | 另一 LLM 打分（1-10，四维度），<7 → needs_replan | `agents/reflector_agent.py` |
-| Notifier | GitHub API 贴评论 + 返回前端 | `agents/notifier_agent.py` |
+| Fetcher | 一次 GET 拉 PR 元数据，一次 GET 拉文件列表（无分页循环、无限速缓存） | `agents/fetcher_agent.py` |
+| Analyzer | 每文件：AST 静态分析 + 聊天模型；模型只看 diff 前 200 行 | `agents/analyzer_agent.py` |
+| Synthesizer | 把问题列表交给聊天模型写成 Markdown；模型失败时用本地模板 | `agents/synthesizer_agent.py` |
+| Reflector | 聊天模型给这份报告打自评分；`< 7` → needs_replan。不是校验过的质量分 | `agents/reflector_agent.py` |
+| Notifier | `dry_run`（默认）不发请求；显式关闭且 token 存在时才 POST 评论 | `agents/notifier_agent.py` |
 
 **为什么 5 个 Agent 而非一个 LLM 调用**：每个 Agent 只做一件事（问题好定位）；Fetcher 拉完数据后
 Analyzer 崩了不用重拉；Reflector 可反复打回；加功能（如安全审查）加一个 Agent 即可。
 
 ## 3. 关键设计决策
 
-- **状态机而非手写循环**（LangGraph）：类型化状态 `AgentState`（`graph/state.py`）、条件分支
-  （`_should_retry`，`graph/workflow.py:75`）、原生循环、可观测性、断点续传（HITL）。
-- **反射式质量门**：Reflector 用**另一个** LLM 调用评估报告，四维度（覆盖面/深度/可操作性/清晰度）
-  各 1-10 分；`score < 7.0` → `needs_replan=True` → 退回 Analyzer，**最多 3 次**（`max_reflection_iterations=3`）。
-- **few-shot 校准**：给 LLM 看「好报告/差报告」例子校准打分标准；分析与反思用同一模型避免跨模型偏差。
-- **降级路径**（fail-closed）：LLM 失败 → `_evaluate_report` 返回保守分（>500 字符→7.0，否则 4.0）；
-  整体上「LLM 挂了退回到纯静态 AST 分析，至少抓基础问题」。
-- **离线可复现**：15 个单测覆盖纯逻辑（AST + URL 解析），无网络、无 Key。
+- **状态机**（LangGraph）：类型化状态 `AgentState`（`graph/state.py`）和条件边 `_should_retry`。
+  没有配置 LangSmith，也没有 Human-in-the-Loop 断点。
+- **自评分**：Reflector 用同系列的 `deepseek-chat` 给报告打分。提示词列出覆盖面、深度、可操作性、清晰度，
+  没有好报告/差报告样例。`score < 7.0` 才 `needs_replan`。`reflection_count` 到 3 后进入 Notifier。
+- **调用失败**：Reflector 用字符数启发式（长于 500 字符 → 7.0，否则 4.0）。7.0 打开门。
+  Analyzer 的模型调用失败时只留下静态结果，静态结果本身会漏报（见 `FAILURE_MODES.md`）。
+- **离线复现**：`make check`。本树 `pytest tests -q` 为 26 passed。`test_analyzer.py` 单独是 15 条。
 
 ## 4. 评测方案与成功标准
 
@@ -45,17 +47,17 @@ Analyzer 崩了不用重拉；Reflector 可反复打回；加功能（如安全�
 |---|---|---|
 | URL 解析 | `owner/repo/PR号` 正确提取，非 PR 链接拒绝 | `tests/test_analyzer.py` 4 断言 |
 | AST 静态分析 | 行长度/TODO/裸 except/长函数/console.log 识别 + 无效 Python 优雅降级 | 8 断言 |
-| 离线上限 | 全部单测通过（`python -m pytest tests/ -q`） | **15 passed** |
+| 离线上限 | `python3 -m pytest tests -q` 全部通过 | **26 passed**（其中 `test_analyzer.py` 15 条） |
 
 ## 5. 边界（证明什么 / 不证明什么）
 
 **证明**：
 - PR URL 解析器无网络下正确提取并拒绝非 PR 链接。
-- AST 静态分析器识别常见问题，并在输入是 diff patch（非完整 Python）时优雅降级不崩溃。
-- 15 个离线单测在此树可复算。
+- AST 静态分析器识别它实现了的检查，并在输入不是合法 Python 时不崩溃。
+- mock 掉 GitHub 与聊天客户端后，图能跑完重试环，且 dry-run 不 POST。
+- 26 条离线 pytest 在此树可复算。
 
 **不证明**：
-- LLM 审查质量（Analyzer/Reflector/Synthesizer 需 `DEEPSEEK_API_KEY` 与 `GITHUB_TOKEN`，离线未触及）。
-- 端到端审查流程（LangGraph 状态机依赖上述 Agent，未在离线测试实例化）。
-- 报告是否真的贴回 GitHub PR（notifier 需真实 Token，未测试）。
-- 本文是设计说明，**非同行评审**，无外部投稿声明。
+- 模型自评分是审查质量。
+- 真实 PR 上的效果，或曾经有一条评论被贴回 GitHub。live POST 测试替换了 `requests.post`。
+- 本文是设计说明，**非同行评审**，无外部投稿声明。没有 PyPI 包。

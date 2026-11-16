@@ -1,11 +1,11 @@
 # Bench — CodeAgent Reviewer 验证基准
 
-> 本目录登记 code-review-agent 的**真实验证基准**：15 个离线单测 + AST 静态分析器的真实检查项。
-> 所有数字都能从仓库树重取（`python -m pytest tests/ -q`，无网络、无 Key）。
-> **关键边界**：本仓库**有意不覆盖** Agent 的 LLM 路径、FastAPI 与 Streamlit 服务
-> （需要真实 `DEEPSEEK_API_KEY` 与 `GITHUB_TOKEN`）——**不伪造结果**。
+> 本目录登记 code-review-agent 的离线检查。全库条数以 `python3 -m pytest tests -q` 为准
+> （本树为 **26 passed**，无 token）。其中 `tests/test_analyzer.py` 是 15 条。
+> 聊天模型在新增测试里被替换，脚本返回的数字不是审查质量分。
+> Streamlit 没有进 pytest。没有真实 PR 评测。
 
-## 基准 1 — 离线单测（15 个，`tests/test_analyzer.py`，实测）
+## 基准 1 — `tests/test_analyzer.py`（15 条，只这一文件）
 
 | 测试 | 真实断言 | 覆盖项 |
 |---|---|---|
@@ -22,8 +22,8 @@
 | `test_parse_pr_url_with_anchor` | `.../pull/123#issuecomment-99` → 同上 | 同上 |
 | `test_parse_pr_url_rejects_non_pr`（4 反例） | 非 PR 链接 → `ValueError` | 同上 |
 
-- **判读**：15 = 12 个 `def test_` + 4 个参数化反例（`test_parse_pr_url_rejects_non_pr`）的实际收集与通过数。
-- **边界**：只覆盖**纯逻辑**部分（AST + URL 解析）；LLM 路径、端到端流程、notifier 贴回 GitHub **有意不覆盖**。
+- **判读**：这 15 条 = 12 个 `def test_` + 4 个参数化反例减掉被展开的那个函数本身。CR-18 复算的是这个文件，不是全库。
+- **全库另外 11 条**在 `tests/test_negative_cases.py`（8）和 `tests/test_offline_pipeline.py`（3），见 `FAILURE_MODES.md`。
 
 ## 基准 2 — AST 静态分析检查项（真实，`tools/code_analyzer.py`）
 
@@ -39,26 +39,27 @@
 
 | 参数 | 真实值 | 位置 |
 |---|---|---|
-| 报告质量阈值 | 分数 < **7.0** → `needs_replan=True` | `agents/reflector_agent.py:64` |
-| 最大重试 | `max_reflection_iterations = 3` | `graph/workflow.py:83` / `graph/state.py:78` |
-| 打分维度 | 覆盖面 / 深度 / 可操作性 / 清晰度 | `agents/reflector_agent.py:101-103` |
-| LLM 失败降级 | 报告 >500 字符 → 7.0，否则 4.0 | `agents/reflector_agent.py:142` |
+| 自评分阈值 | 分数 < **7.0** → `needs_replan=True`；7.0 不退回 | `agents/reflector_agent.py` |
+| 最大重试 | `max_reflection_iterations = 3`，达到后仍进入 Notifier | `graph/workflow.py` `_should_retry` |
+| 提示里的维度 | 覆盖面 / 深度 / 可操作性 / 清晰度（无 few-shot 样例） | `agents/reflector_agent.py` |
+| 调用失败 | 报告长于 500 字符 → 7.0，否则 4.0；kind=`heuristic_fallback` | `agents/reflector_agent.py` |
 
 ## 复现（离线）
 
 ```bash
-python -m pytest tests/ -q          # 15 passed（无网络无 Key）
+make check
+# 或：python3 -m pytest tests -q    # 本树 26 passed（无 token）
 
-# 单点复算：URL 解析
-python -c "
+python3 -c "
 import sys; sys.path.insert(0,'.')
 from tools.github_tool import parse_pr_url
 print(parse_pr_url('https://github.com/owner/repo/pull/123'))  # ('owner','repo',123)
 "
 ```
 
-## Fail-closed（真实代码）
+## 门不是 fail-closed
 
-- **Reflector 打分 < 7.0 → 退回 Analyzer 重做**（`needs_replan=True`），最多 3 次——不把低质量报告直接发出去。
-- **LLM 失败降级**：`_evaluate_report` 在 LLM 调用失败时返回保守分（7.0/4.0），**不伪造**高质量分。
-- **整体降级**：README 明确「如果 LLM 挂了，退回到纯静态分析（AST 检查），至少能抓到基础问题」。
+- 自评分 `< 7.0` 且 `reflection_count < 3` 时退回 Analyzer。
+- 第 3 次之后进入 Notifier，即使分数仍低于 7。默认 `dry_run`，所以不会因此贴评论；这不是质量拒绝。
+- 模型调用失败且报告长于 500 字符时，启发式给出 7.0，门打开。
+- Analyzer 的模型调用失败时只保留静态结果。静态结果会漏掉 `tests/fixtures/seeded_empty_mean.py`。
